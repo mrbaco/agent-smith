@@ -74,6 +74,7 @@ async def main(
         subprocess.run(
             [os.getenv('SCRIPT_PATH')],
             capture_output=False,
+            shell=True,
             text=True,
             env=os.environ.copy(),
             timeout=30
