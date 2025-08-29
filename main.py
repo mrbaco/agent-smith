@@ -1,8 +1,9 @@
-import subprocess
 from typing import Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Header, Request, Response, status
 
+import subprocess
+import requests
 import hashlib
 import hmac
 import json
@@ -71,14 +72,22 @@ async def main(
         )
 
     try:
-        subprocess.run(
+        result = subprocess.run(
             [os.getenv('SCRIPT_PATH')],
-            capture_output=False,
+            capture_output=True,
             shell=True,
             text=True,
             env=os.environ.copy(),
             timeout=30
         )
+
+        if result.returncode != 0:
+            raise HTTPException(
+                status_code=500,
+                detail='Error in script execution'
+            )
+
+        requests.get(os.getenv('GET_WEBHOOK_URL'))
 
         return Response(status_code=status.HTTP_202_ACCEPTED)
 
