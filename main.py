@@ -1,6 +1,14 @@
 from typing import Optional
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Header, Request, Response, status
+from fastapi import (
+    FastAPI,
+    BackgroundTasks,
+    HTTPException,
+    Header,
+    Request,
+    Response,
+    status
+)
 
 import subprocess
 import requests
@@ -13,9 +21,32 @@ load_dotenv('.env')
 
 app = FastAPI()
 
+def run_script():
+    try:
+        result = subprocess.run(
+            [os.getenv('SCRIPT_PATH')],
+            capture_output=True,
+            shell=True,
+            text=True,
+            env=os.environ.copy(),
+            timeout=60
+        )
+
+        if result.returncode != 0:
+            raise HTTPException(
+                status_code=500,
+                detail='Error in script execution'
+            )
+
+        requests.get(os.getenv('SUCCEED_WEBHOOK_URL'))
+
+    except Exception:
+        requests.get(os.getenv('FAILED_WEBHOOK_URL'))
+
 @app.post("/", status_code=status.HTTP_204_NO_CONTENT)
 async def main(
     request: Request,
+    background_tasks: BackgroundTasks,
     x_hub_signature_256: Optional[str] = Header(None),
     x_github_event: Optional[str] = Header(None)
 ):
@@ -71,34 +102,6 @@ async def main(
             detail='Script is not executable'
         )
 
-    try:
-        result = subprocess.run(
-            [os.getenv('SCRIPT_PATH')],
-            capture_output=True,
-            shell=True,
-            text=True,
-            env=os.environ.copy(),
-            timeout=30
-        )
+    background_tasks.add_task(run_script)
 
-        if result.returncode != 0:
-            raise HTTPException(
-                status_code=500,
-                detail='Error in script execution'
-            )
-
-        requests.get(os.getenv('GET_WEBHOOK_URL'))
-
-        return Response(status_code=status.HTTP_202_ACCEPTED)
-
-    except subprocess.TimeoutExpired:
-        raise HTTPException(
-            status_code=408,
-            detail='Script execution timed out'
-        )
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f'Script execution failed: {str(e)}'
-        )
+    return Response(status_code=status.HTTP_202_ACCEPTED)
