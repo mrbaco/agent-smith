@@ -48,53 +48,62 @@ async def main(
     request: Request,
     background_tasks: BackgroundTasks,
     x_hub_signature_256: Optional[str] = Header(None),
-    x_github_event: Optional[str] = Header(None)
+    x_github_event: Optional[str] = Header(None),
+    x_deploy_key: Optional[str] = Header(None)
 ):
-    if not x_hub_signature_256:
-        raise HTTPException(
-            status_code=403,
-            detail='x-hub-signature-256 header is missing'
+    if x_deploy_key is None:
+        if not x_hub_signature_256:
+            raise HTTPException(
+                status_code=403,
+                detail='x-hub-signature-256 header is missing'
+            )
+
+        body = await request.body()
+
+        hash_object = hmac.new(
+            os.getenv('TOKEN').encode(),
+            msg=body,
+            digestmod=hashlib.sha256
         )
+        expected_signature = 'sha256=' + hash_object.hexdigest()
 
-    body = await request.body()
+        if not hmac.compare_digest(expected_signature, x_hub_signature_256):
+            raise HTTPException(
+                status_code=403,
+                detail='Request signatures didn\'t match'
+            )
 
-    hash_object = hmac.new(
-        os.getenv('TOKEN').encode(),
-        msg=body,
-        digestmod=hashlib.sha256
-    )
-    expected_signature = 'sha256=' + hash_object.hexdigest()
+        if x_github_event != 'pull_request':
+            raise HTTPException(
+                status_code=403,
+                detail='Only "pull_request" events allowed'
+            )
 
-    if not hmac.compare_digest(expected_signature, x_hub_signature_256):
-        raise HTTPException(
-            status_code=403,
-            detail='Request signatures didn\'t match'
-        )
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=400,
+                detail='Invalid JSON in request body'
+            )
 
-    if x_github_event != 'pull_request':
-        raise HTTPException(
-            status_code=403,
-            detail='Only "pull_request" events allowed'
-        )
+        if body.get('action', None) != 'closed':
+            return
 
-    try:
-        body = await request.json()
-    except json.JSONDecodeError:
-        raise HTTPException(
-            status_code=400,
-            detail='Invalid JSON in request body'
-        )
+        pull_request = body.get('pull_request', { })
 
-    if body.get('action', None) != 'closed':
-        return
+        if pull_request.get('merged_at', None) is None:
+            return
 
-    pull_request = body.get('pull_request', { })
+        if not pull_request.get('base', { }).get('ref', None) in ['main', 'master']:
+            return
 
-    if pull_request.get('merged_at', None) is None:
-        return
-
-    if not pull_request.get('base', { }).get('ref', None) in ['main', 'master']:
-        return
+    else:
+        if x_deploy_key != os.getenv('DEPLOY_KEY'):
+            raise HTTPException(
+                status_code=401,
+                detail='Invalid deploy key'
+            )
 
     if not os.access(os.getenv('SCRIPT_PATH'), os.X_OK):
         raise HTTPException(
