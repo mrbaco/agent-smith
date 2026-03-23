@@ -22,6 +22,17 @@ load_dotenv('.env')
 app = FastAPI()
 
 def run_script():
+    proxies = None
+
+    http_proxy = os.getenv('HTTP_PROXY_CONNECTION_STRING')
+    https_proxy = os.getenv('HTTPS_PROXY_CONNECTION_STRING')
+
+    if http_proxy and https_proxy:
+        proxies = dict(
+            http=http_proxy,
+            https=https_proxy
+        )
+
     try:
         result = subprocess.run(
             [os.getenv('SCRIPT_PATH')],
@@ -38,10 +49,18 @@ def run_script():
                 detail='Error in script execution'
             )
 
-        requests.get(os.getenv('SUCCEED_WEBHOOK_URL'))
+        requests.get(
+            os.getenv('SUCCEED_WEBHOOK_URL'),
+            timeout=10,
+            proxies=proxies
+        )
 
     except Exception:
-        requests.get(os.getenv('FAILED_WEBHOOK_URL'))
+        requests.get(
+            os.getenv('FAILED_WEBHOOK_URL'),
+            timeout=10,
+            proxies=proxies
+        )
 
 @app.post("/", status_code=status.HTTP_204_NO_CONTENT)
 async def main(
